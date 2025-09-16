@@ -96,7 +96,7 @@ def backup_directory(source):
     h, m, s = time[:2], time[2:4], time[4:]
     release = Path(RELEASE) / f"{year_month}/{year_month}-{day}_{h}-{m}-{s}.mp3"
     release.parent.mkdir(exist_ok=True, parents=True)
-    _run("ffmpeg", "-i", master[0], "-vn", "-b:a", "160k", release, capture_output=True)
+    _run(*FFMPEG, master[0], "-vn", "-b:a", "160k", release, capture_output=True)
 
 
 class CardInserted(FileSystemEventHandler):
