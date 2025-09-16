@@ -23,6 +23,7 @@ SLEEP_TIME = 0.2
 RUNNING = True
 COMMANDS = queue.Queue[object]()
 DRY_RUN = False
+VERBOSE = True
 
 FILE_RE = re.compile(r"\d{6}_\d{6}")
 
@@ -63,16 +64,20 @@ def watch():
 
 
 def backup_directory(source):
-    files = sorted(source.glob("*.WAV"))
+    if not (files := sorted(source.glob("*.WAV"))):
+        print("No wave files in", source)
+        return
+
     if source.name == "Work":
         source = source.parent
 
     if not FILE_RE.match(source.name):
+        print("Directory doesn't match pattern", source)
         return
-    date, _, time = source.name.partition("_")
 
     print("Backing up", source)
 
+    date, _, time = source.name.partition("_")
     year, month, day = date[:2], date[2:4], date[4:]
     year_month = f"20{year}-{month}"
     base = f"{year_month}/{source.name}"
@@ -82,21 +87,21 @@ def backup_directory(source):
 
     # Copy all .wav as FLAC
     for f in files:
-        _run(*FFMPEG, f, archive / f"{f.stem}.flac", capture_output=True)
+        _run(*FFMPEG, f, archive / f"{f.stem}.flac")
 
-    if files:
-        ztd = source / "PRJDATA.ZDT"
-        assert ztd.exists()
+    if (ztd := source / "PRJDATA.ZDT").exists():
         _run("cp", ztd, archive)
+    else:
+        print(ztd, "does not exist!")
 
-    if not (master := [f for f in files if f.name == "MASTER.WAV"]):
+    if master := [f for f in files if f.name == "MASTER.WAV"]:
+        # Compress to mp3 at 160k
+        h, m, s = time[:2], time[2:4], time[4:]
+        release = Path(RELEASE) / f"{year_month}/{year_month}-{day}_{h}-{m}-{s}.mp3"
+        release.parent.mkdir(exist_ok=True, parents=True)
+        _run(*FFMPEG, master[0], "-vn", "-b:a", "160k", release)
+    else:
         print("No master!")
-        return
-    # Compress to mp3 at 160k
-    h, m, s = time[:2], time[2:4], time[4:]
-    release = Path(RELEASE) / f"{year_month}/{year_month}-{day}_{h}-{m}-{s}.mp3"
-    release.parent.mkdir(exist_ok=True, parents=True)
-    _run(*FFMPEG, master[0], "-vn", "-b:a", "160k", release, capture_output=True)
 
 
 class CardInserted(FileSystemEventHandler):
@@ -121,11 +126,10 @@ def on_created():
 
 class WaveFilesChanged(FileSystemEventHandler):
     def on_any_event(self, e: FileSystemEvent) -> None:
-        # print("WaveFilesChanged", e.src_path)
         CHANGED_DIRECTORIES.add(Path(e.src_path).parent)
 
 
-def _run(*args, check=True, text=True, **kwargs):
+def _run(*args, check=True, text=True, capture_output=not VERBOSE, **kwargs):
     args = [str(a) for a in args]
     print("$", *args)
     if kwargs.get("shell"):
